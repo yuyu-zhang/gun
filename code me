@@ -1,0 +1,915 @@
+use std::arch::x86_64::_mm_xor_si128;
+
+
+static DISTANCE: f64 = 0.6 ; //the width we want to enlarge (global static variable)
+fn main() {
+
+
+    let mut test = vec![1.0, 9.970000267028809, -10.0, -17.32, 0.0, 0.0, 10.0, -17.32 , 40.0 ,0.0]; //we just use the right angle to simplify (just for test)
+    let mut arr =handle(&mut test);
+    let mut arrh =handle1(&mut test);
+    stuf(&mut arr , &mut arrh ); //(attention here).
+    IndexS(&mut arr ); //(attention here).
+    arrow(&mut arr , &mut arrh);
+    ind(&mut arr , &mut arrh);
+
+}
+
+fn handle(arr: &Vec<f64>) -> Vec<f64> { // handle the vector in order to cut off the former two. // it was used to add return type.
+    let mut hdv: Vec<f64> = Vec::new(); // let mut hdv1:Vec<f64> = Vec::new();
+
+    for i in 2..arr.len() {
+        hdv.push(arr[i]);
+    }
+
+    hdv
+}
+
+fn handle1(arr: &Vec<f64>) -> Vec<f64> { // handle the vector in order to cut off the former two. // it was used to add return type.
+
+    let mut hdv1: Vec<f64> = Vec::new();
+
+    for i in 0..2 {
+        hdv1.push(arr[i]);
+    }
+
+    hdv1
+}
+
+fn endPointR(mut arr: &mut Vec<f64>) -> Vec<f64> { // output the two endpoint of the road on the right.
+
+    let mod1 = mod1(&mut arr);
+    let unitD2 = UnitV(&mut arr); // transmit the parameter
+    let mut theta = 1.570796;
+    let mut len = arr.len() ;
+    let mut len1 = mod1.len();
+
+    let mut endI :Vec<f64> = Vec::new();// x and y of the initial point.
+
+    endI.push(- unitD2[0][0]);
+    endI.push(- unitD2[0][1]);// initial endpoint
+
+    let mut endE :Vec<f64> = Vec::new();// x and y of the end point.
+
+    endE.push((arr[len-2]-arr[len-4])/mod1[len1-1]);
+    endE.push((arr[len-1]-arr[len-3])/mod1[len1-1]); //end point
+
+    let ReI = ClW(&mut theta ,&mut endI); // result of initial
+    let ReE = ClW(&mut theta , &mut endE ); // result of the end
+    let mut EndR :Vec<f64> = Vec::new();
+    EndR.push(ReI[0] * DISTANCE + arr[0]);
+    EndR.push(ReI[1] * DISTANCE+ arr[1]);
+    EndR.push(ReE[0] * DISTANCE + arr[len-2]);
+    EndR.push(ReE[1] * DISTANCE + arr[len-1]);
+
+    print!("{:?}enr", EndR);
+
+    EndR
+}
+
+fn endPointL(mut arr: &mut Vec<f64>) -> Vec<f64> { // output the two endpoint of the road on the left.
+
+    let mod1 = mod1(&mut arr);
+    let unitD2 = UnitV(&mut arr); // transmit the parameter
+    let mut theta = 1.570796;
+    let mut len = arr.len() ;
+    let mut len1 = mod1.len();
+
+    let mut endI :Vec<f64> = Vec::new();// x and y of the initial point.
+
+    endI.push(- unitD2[0][0]) ;
+    endI.push(- unitD2[0][1]);// initial endpoint
+
+    let mut endE :Vec<f64> = Vec::new();// x and y of the end point.
+
+    endE.push((arr[len-2]-arr[len-4])/mod1[len1-1]);
+    endE.push((arr[len-1]-arr[len-3])/mod1[len1-1]); //end point
+
+
+    let ReI = CClW(&mut theta ,&mut endI); // result of initial
+    let ReE = CClW(&mut theta ,&mut endE ); // result of the end
+
+    let mut EndL :Vec<f64> = Vec::new();
+    EndL.push(ReI[0] * DISTANCE + arr[0]);
+    EndL.push(ReI[1] * DISTANCE + arr[1]);
+    EndL.push(ReE[0] * DISTANCE + arr[len-2]);
+    EndL.push(ReE[1] * DISTANCE + arr[len-1]);
+
+
+
+    EndL
+}
+
+fn ClW(mut theta: &mut f64, mut turP: &mut Vec<f64>) -> Vec<f64>{ //clockwise
+
+    let mut turn:Vec<Vec<f64>> = vec![vec![0.0; 2]; 2] ; // direction matrix
+    turn[0][0] =   theta.cos();
+    turn[0][1] =   theta.sin();
+    turn[1][0] = - theta.sin();
+    turn[1][1] =   theta.cos();
+
+    let mut  Re:Vec<f64> = Vec::new();// result (coordinate)
+    Re.push(turn[0][0] * turP[0] + turn[0][1] * turP[1]);
+    Re.push(turn[1][0] * turP[0] + turn[1][1] * turP[1]);
+
+    Re
+
+}
+
+fn CClW(mut theta: &mut f64 , mut turP: &mut Vec<f64>) -> Vec<f64>{ //counterclock wise
+
+    let mut turn:Vec<Vec<f64>> = vec![vec![0.0; 2]; 2] ; // direction matrix
+    turn[0][0] =   theta.cos();
+    turn[0][1] = - theta.sin();
+    turn[1][0] =   theta.sin();
+    turn[1][1] =   theta.cos();
+    let mut  Re:Vec<f64> = Vec::new();// result (coordinate)
+
+    Re.push(turn[0][0] * turP[0] + turn[0][1] * turP[1]);
+    Re.push(turn[1][0] * turP[0] + turn[1][1] * turP[1]);
+
+    Re
+
+}
+
+
+fn group(mut arr: &mut Vec<f64>) ->  Vec<Vec<f64>> { // so, those points become some lines
+
+
+    let width = 2;
+    let height = arr.len() / 2;
+
+    let mut unitD: Vec<Vec<f64>> = vec![vec![0.0; width]; height];  // unit direction calculation
+
+    for i in (0..arr.len() - 1).filter(|x| x % 2 == 0) { // turn original data into groups.(every two coordinates)
+
+        unitD[i / 2][0] = arr[i];
+        unitD[i / 2][1] = arr[i + 1];
+    }
+
+    let width1 = 4;
+    let height1 = arr.len() / 2 - 1;
+    let mut unitD1: Vec<Vec<f64>> = vec![vec![0.0; width1]; height1]; //set every two points as a group. // 每两个向量一组
+
+    for i in 0..unitD.len() - 1 {
+        unitD1[i][0] = unitD[i][0];
+        unitD1[i][1] = unitD[i][1];
+        unitD1[i][2] = unitD[i + 1][0];
+        unitD1[i][3] = unitD[i + 1][1];
+    }
+
+    unitD1
+
+}
+
+
+fn mod1(mut arr: &mut Vec<f64>) -> Vec<f64> { // calculate the mod of those lines in unitD1
+
+    let unitD1 = group(&mut arr);
+
+    let mut mod1: Vec < f64> = Vec::new();// thr distance between two points.
+
+    for i in 0..unitD1.len(){
+
+        mod1.push( ((unitD1[i][2] - unitD1[i][0] ) * (unitD1[i][2] - unitD1[i][0] ) + (unitD1[i][3]
+            -unitD1[i][1]) * (unitD1[i][3]
+            - unitD1[i][1])).sqrt());
+    }
+
+    mod1
+}
+
+fn UnitV(mut arr: &mut Vec<f64>) -> Vec<Vec<f64>>{ //set this as unit vector(remember that the first paragraph are reversed)
+
+    let unitD1 = group(&mut arr);
+    let mod1 = mod1(&mut arr);
+    let width2 = 4;
+    let height2 = unitD1.len()-1;
+    let mut unitD2:Vec<Vec<f64>> = vec![vec![0.0; width2 ]; height2]; //set every two points as a group.
+
+    for i in 0..unitD1.len()-1{
+
+        unitD2[i][0] = ( unitD1[i][0] - unitD1[i][2] ) /  mod1[i];
+        unitD2[i][1] = ( unitD1[i][1] - unitD1[i][3] ) /  mod1[i];
+        unitD2[i][2] = ( unitD1[i+1][2] - unitD1[i+1][0] ) /  mod1[i+1];
+        unitD2[i][3] = ( unitD1[i+1][3] - unitD1[i+1][1] ) /  mod1[i+1]; // please remember this is different
+
+    }
+
+    unitD2
+}
+
+fn addTwoUiV(mut arr: &mut Vec<f64>) -> Vec<Vec<f64>>{ // add two unit vector together(this are witting for judge the direction)
+
+    let unitD2 = UnitV(&mut arr);// transmit the parameter
+    let unitD1 = group(&mut arr);
+
+    let width = 2;
+    let height2 = unitD1.len()-1;
+    let mut unitD4:Vec<Vec<f64>> = vec![vec![0.0; width ]; height2]; //
+
+    for i in 0..unitD2.len(){
+        if  (unitD2[i][0] + unitD2[i][2] ==0.0) && (unitD2[i][1] + unitD2[i][3] == 0.0){ // do not need to turn, just exchange x and y.
+
+            unitD4[i][0] = unitD2[i][1] ;
+            unitD4[i][1] = -unitD2[i][0] ;
+
+        }else{
+            unitD4[i][0] = unitD2[i][0] + unitD2[i][2];
+            unitD4[i][1] = unitD2[i][1] + unitD2[i][3];
+        }
+    }
+
+    unitD4
+}
+
+
+fn theta(mut arr: &mut Vec<f64>) -> Vec<f64> {
+
+    let unitD2 = UnitV(&mut arr);// transmit the parameter
+
+    let mut theta:Vec<f64> = Vec::new(); // calculate half the angle
+
+    for i in 0..unitD2.len(){
+        theta.push( ((((unitD2[i][0]* unitD2[i][2])+( unitD2[i][1]* unitD2[i][3]) )).acos()) / 2.0 );//half the angle
+
+    }
+    theta
+}
+
+fn broderp(mut arr: &mut Vec<f64>) -> (Vec<f64>, Vec<f64>) {
+
+    let unitD4 = addTwoUiV(&mut arr);// transmit the parameter
+    let unitD1 = group(&mut arr);
+    let unitD2 = UnitV(&mut arr);
+    let er = endPointR(&mut arr);
+    let el = endPointL(&mut arr);
+    let clo = clock(&mut arr);// direction
+
+    let width = 2;
+    let height2 = unitD1.len()-1;
+
+    let mut broder:Vec<Vec<f64>> = vec![vec![0.0; width ]; height2]; // calculate multiply of the original coordinate.
+
+    let theta = theta(&mut arr);// transmit the parameter
+
+    for i in 0..unitD2.len() {
+        if theta[i] == 1.5707963162581844 { // if the angle equals to 90 degree.
+            broder[i][0] = (unitD4[i][0] * DISTANCE);
+            broder[i][1] = (unitD4[i][1] * DISTANCE);
+
+        } else {
+
+            let mut d = (unitD4[i][0]*unitD4[i][0] + unitD4[i][1] * unitD4[i][1]).sqrt();
+            broder[i][0] = (unitD4[i][0]/d * (DISTANCE) / (theta[i].sin()));
+            broder[i][1] = (unitD4[i][1]/d * (DISTANCE) / (theta[i].sin())); //
+        }
+    }
+
+    let mut ncdR:Vec<f64> = Vec::new();
+    let mut ncdL:Vec<f64> = Vec::new();
+
+    ncdR.push(er[0]) ; //0 is right
+    ncdR.push(er[1]) ;
+    ncdL.push(el[0]) ;
+    ncdL.push(el[1]) ;
+
+    for i in 0..clo.len(){ // omit the last one
+
+        ncdR.push(arr[ 2*i+2 ] + clo [ i ] * broder[i][0] )    ; //0 is right
+        ncdR.push((arr[ 2*i+3 ] + clo [ i ] * broder[i][1] )) ;
+        ncdL.push(arr[ 2*i+2 ] + (-1.0)* clo [ i ] * broder[i][0] );
+        ncdL.push(arr[ 2*i+3 ] + (-1.0)* clo [ i ] * broder[i][1] );
+    }
+    ncdR.push(er[2])     ; //0 is right
+    ncdR.push(er[3])     ;
+    ncdL.push(el[2])     ;
+    ncdL.push(el[3])     ;
+
+    (ncdR , ncdL) //two broder road.
+
+}
+
+
+fn caligraph(mut arr: &mut Vec<f64>) -> Vec<Vec<f64>> { // this is a ancillary points
+
+    let (ncdR , ncdL) = broderp(&mut arr);
+    let clo = clock(&mut arr);// transmit the parameter
+
+    let mut a = clo.len();
+
+
+    let mut sort:Vec<Vec<f64>> = vec![vec![0.0; 6]; a] ; //
+    for i in 0..clo.len(){
+        sort[i][0] = ncdR[2 * i] ;
+        sort[i][1] = ncdR[2 * i + 1];
+        sort[i][2] = ncdR[2 * (i + 1)] ;
+        sort[i][3] = ncdR[2 * (i + 1) +1]  ;
+        sort[i][4] = ncdR[2 * (i + 2)] ;
+        sort[i][5] = ncdR[2 * (i + 2) + 1];
+    }
+
+    sort
+
+}
+
+
+fn caligraphL(mut arr: &mut Vec<f64>) -> Vec<Vec<f64>> { // this is a ancillary point of the left // is that possible to merge it into one module?
+
+    let clo = clock(&mut arr);// transmit the parameter
+    let (ncdR , ncdL) = broderp(&mut arr);
+    let mut a = clo.len();
+
+    let mut sort:Vec<Vec<f64>> = vec![vec![0.0; 6]; a] ; //
+    for i in 0..clo.len(){
+        sort[i][0] = ncdL[2 * i] ;
+        sort[i][1] = ncdL[2 * i + 1];
+        sort[i][2] = ncdL[2 * (i + 1)] ;
+        sort[i][3] = ncdL[2 * (i + 1) +1]  ;
+        sort[i][4] = ncdL[2 * (i + 2)] ;
+        sort[i][5] = ncdL[2 * (i + 2) + 1];
+    }
+
+    sort
+
+}
+
+
+fn mergeScatR(mut arr: &mut Vec<f64>) -> Vec<f64> { // smoothing scatter point of right // diaoyongde yeshi
+    let mut sort = caligraph(&mut arr);
+    let theta = theta(&mut arr);
+    let clo = clock(&mut arr);
+    let mut ro = 0.0;
+    let mut Ro = Vec::new();
+
+    let mut roundR = Vec::new(); //
+
+    for i in 0..sort.len(){
+
+        if theta[i] ==1.5707963162581844 { // maybe later we could change it into a specific range.
+            if clo[i] > 0.0{
+                let ( temp1, temp,ro) = acutAR(&mut sort[i]); // clock wise stuff the smaller side.
+                roundR.extend(temp.iter().copied());
+                Ro.push(ro)
+            }else {
+                let (temp, temp1,ro) = acutAR(&mut sort[i]);
+                roundR.extend(temp.iter().copied());
+                Ro.push(ro)
+            } // temp.extend_from_slice(&t); } // temp.push(sort[i][4]); // temp.push(sort[i][5]) //
+
+        }else { // temp = bluntAR(&mut sort[i]);
+            if clo[i] > 0.0{
+                let ( temp1, temp,ro) = acutAR(&mut sort[i]);
+                roundR.extend(temp.iter().copied());
+                Ro.push(ro)
+
+            }else {
+                let ( temp, temp1,ro) = acutAR(&mut sort[i]); // temp.extend_from_slice(&t);
+                roundR.extend(temp.iter().copied());
+                Ro.push(ro)
+
+            }
+        }
+
+    }
+
+    roundR
+
+}
+
+fn mergeScatL(mut arr: &mut Vec<f64>) -> Vec<f64>{ // smoothing scatter point of left
+
+    let mut sort = caligraphL(&mut arr);
+    let theta = theta(&mut arr);
+    let clo = clock(&mut arr); // let (mut temp,mut temp1) = rectangR(&mut sort[i]); // let mut temp:Vec<f64> = Vec::new(); // let mut temp1:Vec<f64> = Vec::new(); // large
+    let mut roundL = Vec::new(); //
+
+    let mut Ro = Vec::new();
+
+
+    for i in 0..sort.len(){
+
+        if theta[i] ==1.5707963162581844 { // maybe later we could change it into a specific range.
+            if clo[i] > 0.0{
+                let ( temp1 , temp,ro) = acutAR(&mut sort[i]);
+                roundL.extend(temp1.iter().copied());
+                Ro.push(ro)
+            }else {
+                let ( temp , temp1,ro) = acutAR(&mut sort[i]);
+                roundL.extend(temp1.iter().copied()) ;// temp.extend_from_slice(&t);
+                Ro.push(ro)
+            } // temp.push(sort[i][4]); // temp.push(sort[i][5]) //
+        }else { // temp = bluntAR(&mut sort[i]);
+            if clo[i] > 0.0{
+                let (temp1 , temp,ro)  = acutAR(&mut sort[i]);
+                roundL.extend(temp1.iter().copied());
+                Ro.push(ro)
+            }else {
+                let ( temp , temp1,ro)  = acutAR(&mut sort[i]);
+                roundL.extend(temp1.iter().copied());
+                Ro.push(ro)
+
+            } // temp.push(sort[i][4]); // temp.push(sort[i][5]) //
+        }
+    }
+
+    print!("{:?}roundL/////////////////////////////////////////////", roundL);
+    print!("{:?}ro&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&", Ro);
+    roundL
+}
+
+fn acutAR(mut arr: &mut Vec<f64> ) -> (Vec<f64>, Vec<f64> , f64) {
+
+    let theta =theta(&mut arr) ; //
+    let mut unitD2 = UnitV(&mut arr);
+    let mut mod1 = mod1(&mut arr);
+    let clo = clock(&mut arr);// transmit the parameter
+
+    let Div = 6.0; // this is a changeable parameter.
+    let mut theta1:f64 = ((3.14 - 2.0 * theta[0]) / Div) as f64;
+    let mut theta3:f64 = ((3.14 - 2.0 * theta[0]) / Div) / 2.0 as f64;
+    let mut E: Vec<f64> = Vec::new();
+    let mut temp:Vec<f64> = Vec::new();// let mut x = arr[0] + (- unitD2[0][0]* (mod1[0]-2.5 * DISTANCE)) ; // let mut y = arr[1] + (- unitD2[0][1]* (mod1[0]-2.5 * DISTANCE)) ;
+
+    let mut m:f64 = - unitD2[0][0]; //起始向量的单位向量
+    let mut n:f64 = - unitD2[0][1];
+    temp.push(m);
+    temp.push(n); // let mut E1: Vec<f64> = Vec::new();
+
+    let mut end:Vec<f64> = Vec::new();
+
+    if clo[0] > 0.0{
+        let end1 =  ClW(&mut theta3, &mut temp);
+        m = end1[0] ;
+        n = end1[1] ;
+        temp[0] = (m);
+        temp[1] = (n);
+
+        E.push(m);
+        E.push(n);
+
+    }else {
+        let end1 =  CClW(&mut theta3, &mut temp);
+        m = end1[0] ;
+        n = end1[1] ;
+        temp[0] = (m);
+        temp[1] = (n);
+
+        E.push(m);
+        E.push(n);
+
+    }
+
+    for i in 0..(Div - 1.0) as i32{ // iterator
+        if clo[0] > 0.0 {
+            let end =  ClW(&mut theta1 , &mut temp);
+            m = end[0] ;
+            n = end[1] ;
+            temp[0] = (m);
+            temp[1] = (n);
+
+            E.push(m);
+            E.push(n);
+
+        }else {
+            let end1 =  CClW(&mut theta1, &mut temp);
+            m = end1[0] ;
+            n = end1[1] ;
+            temp[0] = (m);
+            temp[1] = (n);
+
+            E.push(m);
+            E.push(n);
+        }
+
+    }
+    let mut x = arr[0] + (- unitD2[0][0]* (mod1[0]-(2.5 * DISTANCE)/theta[0].tan())) ;
+    let mut y = arr[1] + (- unitD2[0][1]* (mod1[0]-(2.5 * DISTANCE)/theta[0].tan())) ;
+
+    let mut E1: Vec<f64> = Vec::new(); // E1 直接就是点的坐标， 我们在E1的基础上进行点的连续性 曲率更改
+    E1.push(x);
+    E1.push(y);
+    let mut rou =0.0;
+    for i in (0..E.len()).filter(|x| x % 2 == 0){
+        rou += (2.5 * DISTANCE)*(theta1/2.0).sin()*2.0;
+        x += ((2.5 * DISTANCE))*(theta1/2.0).sin()*2.0 *E[i] ;
+        y += ((2.5 * DISTANCE))*(theta1/2.0).sin()*2.0 *E[i+1] ; //doesnt matter if it is same.
+
+        E1.push(x );
+        E1.push(y );
+    }
+
+    let mut E2: Vec<f64> = Vec::new(); //
+    let mut u = arr[0] + (- unitD2[0][0]* (mod1[0]-(0.5 * DISTANCE)/theta[0].tan())) ;
+    let mut v = arr[1] + (- unitD2[0][1]* (mod1[0]-(0.5 * DISTANCE)/theta[0].tan())) ;
+
+
+    E2.push(u);
+    E2.push(v);
+
+    for i in (0..E.len()).filter(|x| x % 2 == 0){
+
+        u += (0.5 * DISTANCE)*(theta1/2.0).sin()*2.0 *E[i] ;
+        v += (0.5 * DISTANCE)*(theta1/2.0).sin()*2.0 *E[i+1] ; //doesnt matter if it is same.
+
+        E2.push(u);
+        E2.push(v);
+
+    }
+
+    (E1 , E2 , rou)    // the E1 represent the larger radian, and E2 represent the smaller radian
+
+}
+
+
+
+fn clock(mut arr: &mut Vec<f64>) -> Vec<f64>{ // judge the direction change of the road.  // first pass the value in:
+
+    let width = 4;
+    let height = arr.len()/2-2;
+    let mut unitD6:Vec<Vec<f64>> = vec![vec![0.0; width ]; height]; //set every two points as a group.
+
+    for i in (0..arr.len()-4).filter(|x| x % 2 ==0){
+
+        unitD6[i/2][0] = ( arr[i+2] - arr[i] ) ;
+        unitD6[i/2][1] = ( arr[i+3] - arr[i+1]  ) ;
+        unitD6[i/2][2] = ( arr[i+4] - arr[i+2] ) ;
+        unitD6[i/2][3] = ( arr[i+5] - arr[i+3]  ) ; // process the cross multiply
+
+    }
+    let mut clo:Vec<f64> = Vec::new();
+    for i in 0..unitD6.len(){
+        if unitD6[i][0]*unitD6[i][3] - unitD6[i][1]*unitD6[i][2] <= 0.0{ //clockwise
+            clo.push(1.0 );
+        }else{
+            clo.push(-1.0 );
+        }
+
+    }
+
+    clo
+
+}
+
+
+fn stuf(mut arr: &mut Vec<f64> , mut arrh: &mut Vec<f64> ) -> Vec<f64> { // calling two vector: mid point and end point  // let here be multiple parameter input, maybe not.
+    let EL = endPointL(&mut arr); //transmit the parameter.
+    let ER = endPointR(&mut arr);
+    let roundR = mergeScatR(&mut arr);
+    let roundL = mergeScatL(&mut arr);
+
+    let mut Rline: Vec<f64> = Vec::new(); //right road
+    Rline.push(ER[0]);
+    Rline.push(ER[1]);
+    for i in 0..roundR.len() {
+        Rline.push(roundR[i]);
+    }
+    Rline.push(ER[2]);
+    Rline.push(ER[3]);
+
+
+    let mut Lline: Vec<f64> = Vec::new(); //left road
+    Lline.push(EL[0]);
+    Lline.push(EL[1]);
+    for i in 0..roundL.len() {
+        Lline.push(roundL[i]);
+    }
+    Lline.push(EL[2]);
+    Lline.push(EL[3]);
+
+
+    let mut Bond: Vec<f64> = Vec::new(); // sketch the boundary of the road
+
+    for i in (0..Lline.len() - 3).filter(|x| x % 2 == 0) {
+        Bond.push(Rline[i]);
+        Bond.push(Rline[i + 1]);
+        Bond.push(Rline[i + 2]);
+        Bond.push(Rline[i + 3]);
+
+        Bond.push(Lline[i + 2]);
+        Bond.push(Lline[i + 3]);
+        Bond.push(Lline[i]);
+        Bond.push(Lline[i + 1]);
+    }
+
+    let mut arf: Vec<f64> = Vec::new();
+    arf.push(0.2784); // RBG color index, which is fixed
+    arf.push(0.2784);
+    arf.push(0.2784);
+    for i in (0..Bond.len() - 1).filter(|x| x % 2 == 0) {
+        arf.push(Bond[i]);
+        arf.push(Bond[i + 1]); // add the new coordinate into the matrix
+        arf.push(0.009999999776482582);// all of the rest are fixed number
+        arf.push(0.0);
+        arf.push(0.0);
+        arf.push(1.0);
+        arf.push(0.3411764705882353);
+        arf.push(0.5058823529411764);
+        arf.push(1.0);
+        arf.push(arrh[1]); //this one is mutable
+    }
+
+    println!("{:?} arf is:", arf); // just temporarily forget the arrow the current thought is to set the ratio
+    Bond
+
+}
+
+
+fn IndexS(mut arr: &mut Vec<f64>) ->Vec<i32> { // that is the method of derive the index of the arrow
+
+    let rou =mergeScatR(&mut arr);
+    let roul =mergeScatL(&mut arr);
+
+    let mut inda:Vec<i32> = Vec::new();
+    let mut len= rou.len() + 4;
+
+    let mut count = ((len / 2) -1 ) ;
+
+    for i in 0..count{
+        i as i32;
+        inda.push(i as i32);
+
+    }
+    let mut inda1 = Vec::new();
+    for i in 0..inda.len() {
+        inda1.push(inda[i] * 4 +3);
+        inda1.push(inda[i] * 4);
+        inda1.push(inda[i] * 4 +2);
+        inda1.push(inda[i] * 4 +2);
+        inda1.push(inda[i] * 4 );
+        inda1.push(inda[i]* 4 + 1);
+    }
+
+    let mut inda2 = Vec::new();
+    for i in 0..inda.len() {
+        inda2.push(inda[i] * 4 );
+        inda2.push(inda[i] * 4 +1 );
+        inda2.push(inda[i] * 4 +3);
+        inda2.push(inda[i] * 4 +2);
+
+    }// modify it such that it become the ordered vector with length of the count
+
+    print!("{:?}four vertex point index.......................", inda1);
+    print!("{:?}the index of the side/////////////////////////", inda2);
+
+    inda1
+}
+
+fn arrow(mut arr: &mut Vec<f64> , mut arrh: &mut Vec<f64>) -> Vec<f64> {
+
+    let EL = endPointL(&mut arr); //transmit the parameter.
+    let ER = endPointR(&mut arr);
+    let clo = clock(&mut arr);// direction
+    let mut roundR = mergeScatR(&mut arr);
+    let mut roundL = mergeScatL(&mut arr);
+    let unitD3 = UnitVS(&mut arr);
+    // let (x , y, ro)
+
+
+
+
+    let mut Rline: Vec<f64> = Vec::new(); //right road
+
+    Rline.push(ER[0]);
+    Rline.push(ER[1]);
+    for i in 0..roundR.len() {
+        Rline.push(roundR[i]);
+    }
+    Rline.push(ER[2]);
+    Rline.push(ER[3]);
+
+    let mut Lline: Vec<f64> = Vec::new(); //left road
+
+    Lline.push(EL[0]);
+    Lline.push(EL[1]);
+    for i in 0..roundL.len() {
+        Lline.push(roundL[i]);
+    }
+    Lline.push(EL[2]);
+    Lline.push(EL[3]);
+    let unit = UnitVS(&mut Lline);
+    let mut distance = 2.0 * DISTANCE ;
+    let mut interval = 3.0 * distance * 2.0 ; //ratio
+    let mut arrowI: Vec<f64> = Vec::new(); //to calculate how many arrow could be stuffed into the road.
+    let mut Alen = 0.0 ;//
+    let mut Alen1  = Vec::new() ;//
+
+
+    for i in (0..Lline.len()).filter(|x| x % 14 == 0){// not the same as the below 14 // but all those are changeable.
+        let mut len = ((Lline[i + 2] - Lline[i]) * (Lline[i + 2] - Lline[i]) + (Lline[i + 3] - Lline[i + 1]) * (Lline[i + 3] - Lline[i + 1]) ).sqrt(); //write a two layer loop
+        Alen +=len;
+        let mut temp = vec![0.045,0.045,0.045,0.045,0.045,0.045];
+        Alen1.push(len);
+        Alen1.extend(temp.iter().clone());
+        let a = ((len -interval)/ (interval + distance)).ceil() as i32 ;
+
+
+    }
+    let mut aaa = vec![17.405, 17.925 ,18.445, 18.965 ,19.485 ,20.005, 20.525 , 36.435 , 36.825,37.215,37.605,37.995,38.385,38.775, 71.875 ];
+    let mut xxx:Vec<Vec<f64>> = vec![vec![0.0; 2 ]; aaa.len()];
+    xxx[0][0] = 0.0;
+    xxx[0][1] = aaa[0];
+    for i in 1..aaa.len(){
+        xxx[i][0] = aaa[i];
+        xxx[i][1] = aaa[i - 1];
+
+    }
+    let mut mod1 =vec![0.0 ,20.525, 38.775 ];
+    let mut rr = vec![0.0 , 0.0];
+    let mut theta = 1.57;
+    let mut temp1:Vec<f64> = vec![0.0 , 0.0, 0.0 , 0.0, 0.0 , 0.0, 0.0 , 0.0];
+    let unit = UnitVS(&mut Rline);
+
+    let mut len  = Alen + 0.7287646229736925+ 0.5476485270788497;
+    let a = ((71.875 -interval * 0.5 - distance)/ (interval + distance)).ceil() as i32 ;
+    for i in 0..a{// not the same as the below 14 // but all those are changeable.
+
+        // let mut x1 = Alen[i];
+        let mut y1 =  ((i as f64 + 0.5)  * interval + i as f64 * distance) ;
+        for mut j in 0..xxx.len(){
+            let mut ii = 0.0;
+            if (y1 -xxx[j][1]) * (y1 -xxx[j][0]) < 0.0 {
+
+                if j % 7 == 0 { // do not need to know background check
+
+                    let mut d =  ((i as f64 + 0.5) * interval + i as f64 * distance) - mod1[j / 7]  ; // the length of that
+                    let mut d1 = ((i as f64 + 0.5) * interval + (i + 1) as f64 * distance) - mod1[j / 7];
+
+                    arrowI.push(Rline[j * 2 ] + (unitD3[j / 7 * 2]) * d) ;
+                    arrowI.push(Rline[j * 2 + 1] + (unitD3[j / 7 * 2 + 1]) * d);
+                    arrowI.push(Rline[j * 2 ] + (unitD3[j / 7 * 2]) * d1);
+                    arrowI.push(Rline[j * 2 + 1] + (unitD3[j / 7 * 2 + 1]) * d1); // two for the right
+
+                    arrowI.push(Lline[j * 2 ] + (unitD3[j / 7 * 2]) * d1);
+                    arrowI.push(Lline[j * 2+ 1] + (unitD3[j / 7 * 2 + 1]) * d1);//two for the left.
+                    arrowI.push(Lline[j * 2 ] + (unitD3[j / 7 * 2]) * d);
+                    arrowI.push(Lline[j * 2 + 1] + (unitD3[j / 7 * 2 + 1]) * d); // just delete the rest two point which including 4 numbers.
+
+
+                }else { //zehge else panduan zengjiayidiandongxi
+                    let mut k = j % 7 ;
+                    let mut l = (j - k) / 7;
+                    rr[0] = unit[2 * k + 14 * l ] ;
+                    rr[1] = unit[2 * k + 14 * l + 1];//this leaves some mistakes.
+
+                    if clo[l] > 0.0{
+                        let mut p=  ClW(&mut theta ,  &mut rr) ;
+
+                        temp1[0] =(p[0] * DISTANCE * 2.0  + roundL[14 * l + 2 * (k - 1) ]);
+                        temp1[1] =(p[1] * DISTANCE * 2.0  + roundL[14 * l + 2 * (k - 1) + 1]);//two for the left.
+                        temp1[2] =(p[0] * DISTANCE * 2.0  + roundL[14 * l + 2 * (k - 1) ] + rr[0] *  distance );
+                        temp1[3] =(p[1] * DISTANCE * 2.0  + roundL[14 * l + 2 * (k - 1) + 1]  + rr[1] *  distance );
+
+                        temp1[4] =(roundL[14 * l + 2 * (k - 1)] + rr[0]  *  distance );
+                        temp1[5] =(roundL[14 * l + 2 * (k - 1) + 1] + rr[1]  *  distance ); // two for the right
+                        temp1[6] =(roundL[14 * l + 2 * (k - 1)] ) ; //diminish the cost i the most important things
+                        temp1[7] =(roundL[14 * l + 2 * (k - 1) + 1 ] ) ;// derivative the function
+
+                        arrowI.extend(temp1.iter().clone());
+
+
+                    }else {
+
+                        let mut p1=  CClW(&mut theta ,  &mut rr) ;
+                        temp1[0] =(roundR[14 * l + 2 * (k - 1) ] ) ;
+                        temp1[1] =(roundR[14 * l + 2 * (k - 1) + 1] ) ; // may here you should add a judgement not here ? it should be you have your mother eyes
+                        temp1[2] =(roundR[14 * l + 2 * (k - 1) ] + rr[0]  *  distance );
+                        temp1[3] =(roundR[14 * l + 2 * (k - 1) + 1] + rr[1]  *  distance );
+
+                        temp1[4] =(p1[0] * DISTANCE * 2.0  + roundR[14 * l + 2 * (k - 1)] + rr[0]  *  distance );
+                        temp1[5] =(p1[1] * DISTANCE * 2.0  + roundR[14 * l + 2 * (k - 1)  + 1] + rr[1]  *  distance );
+                        temp1[6] =(p1[0] * DISTANCE * 2.0  + roundR[14 * l + 2 * (k - 1) ]); //
+                        temp1[7] =(p1[1] * DISTANCE * 2.0  + roundR[14 * l + 2 * (k - 1)  + 1]);
+
+                        arrowI.extend(temp1.iter().copied());
+
+                    }
+
+
+                }
+            }else {
+                j += 1;
+            }
+
+        }
+
+
+
+
+    }
+
+
+
+
+
+    let mut verA =   Vec::new();
+    for i in (0..arrowI.len()).filter(|x| x % 8 == 0){ //each 4 points has 4 arrow points.
+        verA.push(arrowI[i]);
+        verA.push(arrowI[i + 1] ); //because it is double distance
+        verA.push(0.009999999776482582);
+        verA.push(0.0);
+        verA.push(1.0);
+        verA.push(arrh[1]);
+
+        verA.push(arrowI[i + 2]);
+        verA.push(arrowI[i + 3] );
+        verA.push(0.009999999776482582);
+        verA.push(0.0);
+        verA.push(0.0);
+        verA.push(arrh[1]);
+
+        verA.push(arrowI[i + 4]);
+        verA.push(arrowI[i + 5]);
+        verA.push(0.009999999776482582);
+        verA.push(1.0);
+        verA.push(0.0);
+        verA.push(arrh[1]);
+
+        verA.push(arrowI[i + 6]);
+        verA.push(arrowI[i + 7] );
+        verA.push(0.009999999776482582);
+        verA.push(1.0);
+        verA.push(1.0);
+        verA.push(arrh[1]);
+    }
+    println!("{:?} vertex of arrow is  :", verA);
+    println!("{:?} xxx ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^6 :", unit);
+    print!("{} a is", a);
+
+    arrowI
+
+}
+
+
+fn ind(mut arr : &mut Vec<f64>, mut arrh : &mut Vec<f64>) -> Vec<i32>{
+
+    let arrow = arrow(&mut arr, arrh);
+    let mut a = arrow.len();
+    let mut inda:Vec<i32> = Vec::new();
+
+    let mut count = (a / 8)  ;
+    for i in 0..count{
+
+        i as i32;
+        inda.push(i as i32);
+
+    }
+
+    let mut inda1 = Vec::new();
+    for i in 0..inda.len() {
+        inda1.push(inda[i] * 4 +3);
+        inda1.push(inda[i] * 4);
+        inda1.push(inda[i] * 4 +2);
+        inda1.push(inda[i] * 4 +2);
+        inda1.push(inda[i] * 4 );
+        inda1.push(inda[i]* 4 + 1);
+    }
+
+    print!("{:?}arrow inda1 Vv", inda1);
+
+
+    inda1
+}
+
+
+fn UnitVS(mut arr: &mut Vec<f64>) -> Vec<f64>{ //set this as unit vector(remember that the first paragraph are reversed)
+
+    let unitD1 = group(&mut arr);
+    let mod1 = mod1(&mut arr);
+    let width2 = 4;
+    let height2 = unitD1.len()-1;
+    let mut unitD2:Vec<Vec<f64>> = vec![vec![0.0; width2 ]; height2]; //set every two points as a group.
+    let b = unitD2.len();
+
+    for i in 0..unitD1.len()-1{
+
+        unitD2[i][0] = ( unitD1[i][2] - unitD1[i][0] ) /  mod1[i];
+        unitD2[i][1] = ( unitD1[i][3] - unitD1[i][1] ) /  mod1[i];
+        unitD2[i][2] = ( unitD1[i+1][2] - unitD1[i+1][0] ) /  mod1[i+1];
+        unitD2[i][3] = ( unitD1[i+1][3] - unitD1[i+1][1] ) /  mod1[i+1]; // please remember this is different
+
+    }
+    let mut unitD3:Vec<f64> = Vec::new();
+    for i in 0..unitD2.len(){
+        unitD3.push(unitD2[i][0]);
+        unitD3.push(unitD2[i][1]);
+
+    }
+    unitD3.push(unitD2[b-1][2]);
+    unitD3.push(unitD2[b-1][3]);
+
+    unitD3
+}
+
+
+
+fn zoom_in(mut ratio :f64 ) -> f64{
+    // pass the parameter here, not to change that .
+    let mut a = 1.0;  // set a standard scale
+    // let mut r = ratio; // which is the multiply of the distance
+    let mut distance =  1.0 / ratio * DISTANCE; //
+
+
+    distance
+
+}
