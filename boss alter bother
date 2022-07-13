@@ -1,0 +1,335 @@
+use std::f64::consts::{FRAC_PI_2, PI};
+
+static HALF_ROAD_WIDTH: f64 = 0.7;
+static PARTITION_NUM: f64 = 6.0;
+
+pub(crate) struct Path {
+    point_with_len: Vec<f64>,
+    rd_fl: f64,
+    extra: [f64; 8],
+}
+
+impl Path {
+    pub(crate) fn new(points: Vec<f64>) -> Path {
+        let mut point_with_len = Vec::with_capacity((points.len() - 2) / 2 * 3);
+        let (mut x1, mut y1, mut i) = (points[2], points[3], 4);
+
+        while let [x2, y2, ..] = points[i..] {
+            i += 2;
+            let len = ((x1 - x2).powf(2.0) + (y1 - y2).powf(2.0)).sqrt();
+            if len <= HALF_ROAD_WIDTH { continue; }
+            point_with_len.extend_from_slice(&[x1, y1, len]);
+            x1 = x2;
+            y1 = y2;
+        }
+        point_with_len.extend_from_slice(&[x1, y1]);
+        Path {
+            point_with_len,
+            rd_fl: points[0],
+            extra: [0.0, 0.0, 0.0, 1.0, 0.3411765, 0.5058824, 1.0, points[1]],
+        }
+    }
+
+    pub(crate) fn build_bed(&self) {
+        self.broaden();
+    }
+
+    pub(crate) fn build_icon(&self, left: &Vec<f64>, right: &Vec<f64>, normal: &Vec<f64>, radian: &Vec<f64>) {
+
+    }
+
+    fn broaden(&self) {
+        let l = (self.point_with_len.len() + 1) / 3 - 2;
+        let mut lens = Vec::with_capacity(l);
+        unsafe { lens.set_len(l); }
+        let mut road_points = vec![];
+
+        for side in [false, true] {
+            let mut points = Vec::with_capacity((self.point_with_len.len() + 1) / 3 * 2);
+
+            // if let [x1, y1, l, x2, y2] = self.point_with_len[..5] {
+            //     let point = self.normalize([x1, y1], [x2, y2], l);
+            //     let point = self.rotate(point, side, std::f64::consts::FRAC_PI_2);
+            //     points.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x1, point[1] * HALF_ROAD_WIDTH + y1]);
+            // }
+
+            let mut i = 0;
+            while let [x1, y1, l, x2, y2, ll, x3, y3, ..] = self.point_with_len[i..] {
+                i += 3;
+                let first = self.normalize([x2, y2], [x1, y1], l);
+                let second = self.normalize([x2, y2], [x3, y3], ll);
+
+                let dot = (x1 - x2) / l * (x3 - x2) / ll + (y1 - y2) / l * (y3 - y2) / ll;
+                if dot <= -1.0 {
+                    continue;
+                }
+                let theta = dot.acos() * 0.5;
+                let sin = theta.sin();
+                let d = ((first[0] + second[0]).powf(2.0)) + ((first[1] + second[1]).powf(2.0)).sqrt();
+                let point = if self.clockwise([x1, y1], [x2, y2], [x3, y3]) == !side {
+                    [(-first[0] - second[0]) / d / sin, (-first[1] - second[1]) / d / sin]
+                } else {
+                    [(first[0] + second[0]) / d / sin, (first[1] + second[1]) / d / sin]
+                };
+
+                let cw = if self.clockwise([x1, y1], [x2, y2], [x3, y3]) { 1.0 } else { 0.0 }; // direction
+                points.extend_from_slice(
+                    &[point[0] * HALF_ROAD_WIDTH + x2, point[1] * HALF_ROAD_WIDTH + y2,
+                        l, -first[0], -first[1], cw, theta]);
+            }
+
+            // if let [x1, y1, l, x2, y2] = self.point_with_len[self.point_with_len.len() - 5..] {
+            //     let point = self.normalize([x1, y1], [x2, y2], l);
+            //     let point = self.rotate(point, side, std::f64::consts::FRAC_PI_2);
+            //     points.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x2, point[1] * HALF_ROAD_WIDTH + y2]);
+            // }
+
+            let mut res = self.smooth(points, side, &mut lens);
+            if let [x1, y1, l, x2, y2] = self.point_with_len[..5] {
+                let point = self.normalize([x1, y1], [x2, y2], l);
+                let point = self.rotate(point, side, FRAC_PI_2);
+                res.0.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x1, point[1] * HALF_ROAD_WIDTH + y1]);
+                res.0.rotate_right(2);
+            }
+            if let [x1, y1, l, x2, y2] = self.point_with_len[self.point_with_len.len() - 5..] {
+                let point = self.normalize([x1, y1], [x2, y2], l);
+                let point = self.rotate(point, side, FRAC_PI_2);
+                res.0.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x2, point[1] * HALF_ROAD_WIDTH + y2]);
+            }
+            road_points.push(res);
+        }
+
+        println!("{:?}", road_points[0].0);
+        println!("{:?}", road_points[0].1);
+        println!("{:?}", road_points[1].0);
+        println!("{:?}", road_points[1].1);
+        println!("{:?}", lens);
+        // self.build_icon(&road_points[0].0, &road_points[1].0, road_points[1].1, &lens);
+    }
+
+    fn clockwise(&self, a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) <= 0.0
+    }
+
+    fn rotate(&self, point: [f64; 2], side: bool, theta: f64) -> [f64; 2] {
+        let mut turn: Vec<Vec<f64>> = vec![vec![0.0; 2]; 2]; // direction matrix
+
+        if !side {
+            turn[0][0] = theta.cos();
+            turn[0][1] = -theta.sin();
+            turn[1][0] = theta.sin();
+            turn[1][1] = theta.cos();
+        } else {
+            turn[0][0] = theta.cos();
+            turn[0][1] = theta.sin();
+            turn[1][0] = -theta.sin();
+            turn[1][1] = theta.cos();
+        }
+
+
+        [turn[0][0] * point[0] + turn[0][1] * point[1], turn[1][0] * point[0] + turn[1][1] * point[1]]
+    }
+
+    fn smooth(&self, points: Vec<f64>, side: bool, lens: &mut Vec<f64>) -> (Vec<f64>, Vec<f64>) {
+        let (mut res, mut i) = (vec![], 0);
+        let mut res2 = vec![];
+        while let [x1, y1, l, x2, y2, cw, theta, ..] = points[i..] {
+            i += 7;
+
+            let mut thetas = vec![(PI - theta * 2.0) / PARTITION_NUM].repeat(PARTITION_NUM as usize);
+            thetas[0] = thetas[0] * 0.5;
+
+            let (mut nx, mut ny) = (x2, y2);
+            let mut normals = Vec::with_capacity(12);
+            for &theta in thetas.iter() {
+                let normal = self.rotate([nx, ny], cw == 1.0, theta);
+                normals.extend_from_slice(&normal);
+                nx = normal[0];
+                ny = normal[1];
+            }
+
+            let d = if !side { 2.5 } else { 0.5 } * HALF_ROAD_WIDTH / theta.tan();
+            let (mut x, mut y) = (x1 - d * x2, y1 - d * y2);
+            res.extend_from_slice(&[x, y]);
+            let d = if !side { 2.5 } else { 0.5 } * HALF_ROAD_WIDTH * 2.0 * thetas[0].sin();
+            let mut j = 0;
+            while let [nx, ny, ..] = normals[j..] {
+                j += 2;
+                x += d * nx;
+                y += d * ny;
+                res.extend_from_slice(&[x, y]);
+            }
+            res2.extend_from_slice(&[x2, y2]);
+            res2.extend_from_slice(&normals);
+
+            if !side && cw == 1.0 {
+                lens[i / 7 - 1] = d;
+            }
+        }
+        (res, res2)
+    }
+    fn partition(&self, a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Vec<f64> {
+        // let theta = ((x1 - x2) / l * (x3 - x2) / ll + (y1 - y2) / l * (y3 - y2) / ll);
+        // let l = ((b[0] - a[0]).powf(2.0) + (b[1] - a[1]).powf(2.0)).sqrt();
+        // let ll = ((b[0] - a[0]).powf(2.0) + (b[1] - a[1]).powf(2.0)).sqrt();
+        // let n = self.normalize(a, b, l);
+        vec![0.0]
+    }
+
+    fn normalize(&self, a: [f64; 2], b: [f64; 2], l: f64) -> [f64; 2] {
+        let d = 1.0 / l;
+        [(b[0] - a[0]) * d, (b[1] - a[1]) * d]
+    }
+//
+
+    fn arrow(&self, road_points<f64>, side: bool){
+        let (mut arrowI, mut i) = (vec![vec![]], 0);
+        let mut AI = 2.0 * HALF_ROAD_WIDTH ;
+        let mut interval = 6.0 * AI  ;
+        let mut theta = std::f64::consts::FRAC_PI_2 ;
+        let mut all:Vec<Vec<f64>> = vec![vec![0.0; 2 ]; norm.len()];
+        all[0][0] = 0.0;
+        all[0][1] = norm[0];
+        for i in 1..norm.len(){
+            all[i][0] = norm[i];
+            all[i][1] = norm[i - 1];
+
+        }
+        let mut t = 0.0;
+        for i in 0..norm.len(){
+            t += norm[i]
+        }
+
+
+
+        let mut rr = vec![0.0 , 0.0];
+        while let [x1, y1, x2, y2, cw, norm, ..] = road_points[i..]{
+
+            while i * (interval + AI) + (interval * 0.5 + AI) < t {
+                let mut y1 =  ((i as f64 + 0.5)  * interval + i as f64 * distance) ;
+                for j in 0..t.len(){
+                     if (y1 -all[j][1]) * (y1 -all[j][0]) < 0.0{
+
+                         if j % 7 == 0{
+                             let mut d =  ((i as f64 + 0.5) * interval + i as f64 * distance) - all[j / 7 - 1][1]  ; // the length of that
+                             let mut d1 = ((i as f64 + 0.5) * interval + (i + 1) as f64 * distance) - all[j / 7 - 1][1];
+                             arrowI.extend_from_slice([Rline[j * 2 ] + (radians[j / 7 * 2]) * d , Rline[j * 2 + 1] + (radians[j / 7 * 2 + 1]) * d]);
+                             arrowI.extend_from_slice([Rline[j * 2 ] + (radians[j / 7 * 2]) * d1 , Rline[j * 2 + 1] + (radians[j / 7 * 2 + 1]) * d1]);
+                             arrowI.extend_from_slice([Lline[j * 2 ] + (radians[j / 7 * 2]) * d , Lline[j * 2 + 1] + (radians[j / 7 * 2 + 1]) * d]);
+                             arrowI.extend_from_slice([Lline[j * 2 ] + (radians[j / 7 * 2]) * d1 , Lline[j * 2 + 1] + (radians[j / 7 * 2 + 1]) * d1]);
+
+                         }else{
+                             let mut k = j % 7 ;
+                             let mut l = (j - k) / 7;
+                             rr[0] = norm[2 * k + 14 * l ] ;
+                             rr[1] = norm[2 * k + 14 * l + 1];
+                             if cw == 1{
+                                 let mut p = rotate(&self &mut theta , side,  &mut rr) ;
+                                 temp1[0] =(p[0] * AI + Lline[14 * l + 2 * (k - 1) + 2]);
+                                 temp1[1] =(p[1] * AI + Lline[14 * l + 2 * (k - 1) + 3]);//two for the left.
+                                 temp1[2] =(p[0] * AI + Lline[14 * l + 2 * (k - 1) + 2] + rr[0] *  AI );
+                                 temp1[3] =(p[1] * AI + Lline[14 * l + 2 * (k - 1) + 3] + rr[1] * AI );
+
+                                 temp1[4] =(Lline[14 * l + 2 * (k - 1) + 2] + rr[0]  *  AI );
+                                 temp1[5] =(Lline[14 * l + 2 * (k - 1) + 3] + rr[1] *  AI); // two for the right
+                                 temp1[6] =(Lline[14 * l + 2 * (k - 1) + 2] ) ; //diminish the cost i the most important things
+                                 temp1[7] =(Lline[14 * l + 2 * (k - 1) + 3 ] ) ;// derivative the function
+
+                                 arrowI.extend(temp1.iter().clone());
+
+                             }else {
+                                 let mut p1=  rotate(&self &mut theta , !side,  &mut rr) ;
+                                 temp1[0] =(Rline[14 * l + 2 * (k - 1) + 2] ) ;
+                                 temp1[1] =(Rline[14 * l + 2 * (k - 1) + 3] ) ; // may here you should add a judgement not here ? it should be you have your mother eyes
+                                 temp1[2] =(Rline[14 * l + 2 * (k - 1) + 2] + rr[0]  *  AI );
+                                 temp1[3] =(Rline[14 * l + 2 * (k - 1) + 3] + rr[1] *  AI );
+
+                                 temp1[4] =(p1[0] * HALF_ROAD_WIDTH   + Rline[14 * l + 2 * (k - 1) + 2] + rr[0]  *  AI );
+                                 temp1[5] =(p1[1] * HALF_ROAD_WIDTH   + Rline[14 * l + 2 * (k - 1) + 3] + rr[1]  *  AI );
+                                 temp1[6] =(p1[0] * HALF_ROAD_WIDTH   + Rline[14 * l + 2 * (k - 1) + 2]); //
+                                 temp1[7] =(p1[1] * HALF_ROAD_WIDTH   + Rline[14 * l + 2 * (k - 1) + 3]);
+
+                                 arrowI.extend(temp1.iter().copied());
+
+                             }
+                         }
+
+                     }else{
+                        continue;
+                     }
+                 }
+
+             }
+         }
+
+
+
+    }
+
+//     fn arrow(&self, points: Vec<f64>, side: bool) -> Vec<f64>{
+//
+
+//
+//         let mut y1 =  ((i as f64 + 0.5)  * interval + i as f64 * distance) ;
+//         while i in 0..a { //  alter it later
+//             for mut j in 0..xxx.len(){
+//
+//             let mut ii = 0.0;
+//                 if (y1 - xxx[j][1]) * (y1 - xxx[j][0]) < 0.0 {
+//                     if j % 7 == 0 { // do not need to know background check
+//
+//                         let mut d = ((i as f64 + 0.5) * interval + i as f64 * distance) - mod1[j / 7]; // the length of
+//                         let mut d1 = ((i as f64 + 0.5) * interval + (i + 1) as f64 * distance) - mod1[j / 7];
+//
+//                         arrowI.push(Rline[j * 2] + (res[j / 7 * 2]) * d);
+//                         arrowI.push(Rline[j * 2 + 1] + (res[j / 7 * 2 + 1]) * d);
+//                         arrowI.push(Rline[j * 2] + (res[j / 7 * 2]) * d1);
+//                         arrowI.push(Rline[j * 2 + 1] + (res[j / 7 * 2 + 1]) * d1); // two for the right
+//
+//                         arrowI.push(Lline[j * 2] + (res[j / 7 * 2]) * d1);
+//                         arrowI.push(Lline[j * 2 + 1] + (res[j / 7 * 2 + 1]) * d1);//two for the left.
+//                         arrowI.push(Lline[j * 2] + (res[j / 7 * 2]) * d);
+//                         arrowI.push(Lline[j * 2 + 1] + (res[j / 7 * 2 + 1]) * d); // just delete the rest two point which including 4 numbers.
+//                     } else { //zehge else panduan zengjiayidiandongxi
+//                         let mut k = j % 7;
+//                         let mut l = (j - k) / 7;
+//                         rr[0] = unit[2 * k + 14 * l];
+//                         rr[1] = unit[2 * k + 14 * l + 1];//this leaves some mistakes.
+//
+//                         if cw == 1 {
+//                             let mut p = ClW(&mut theta, &mut rr);
+//
+//                             temp1[0] = (p[0] * DISTANCE * 2.0 + roundL[14 * l + 2 * (k - 1)]);
+//                             temp1[1] = (p[1] * DISTANCE * 2.0 + roundL[14 * l + 2 * (k - 1) + 1]);//two for the left.
+//                             temp1[2] = (p[0] * DISTANCE * 2.0 + roundL[14 * l + 2 * (k - 1)] + rr[0] * distance);
+//                             temp1[3] = (p[1] * DISTANCE * 2.0 + roundL[14 * l + 2 * (k - 1) + 1] + rr[1] * distance);
+//
+//                             temp1[4] = (roundL[14 * l + 2 * (k - 1)] + rr[0] * distance);
+//                             temp1[5] = (roundL[14 * l + 2 * (k - 1) + 1] + rr[1] * distance); // two for the right
+//                             temp1[6] = (roundL[14 * l + 2 * (k - 1)]); //diminish the cost i the most important things
+//                             temp1[7] = (roundL[14 * l + 2 * (k - 1) + 1]);// derivative the function
+//
+//                             arrowI.extend(temp1.iter().clone());
+//                         } else {
+//                             let mut p1 = CClW(&mut theta, &mut rr);
+//                             temp1[0] = (roundR[14 * l + 2 * (k - 1)]);
+//                             temp1[1] = (roundR[14 * l + 2 * (k - 1) + 1]); // may here you should add a judgement not here ? it should be you have your mother eyes
+//                             temp1[2] = (roundR[14 * l + 2 * (k - 1)] + rr[0] * distance);
+//                             temp1[3] = (roundR[14 * l + 2 * (k - 1) + 1] + rr[1] * distance);
+//
+//                             temp1[4] = (p1[0] * DISTANCE * 2.0 + roundR[14 * l + 2 * (k - 1)] + rr[0] * distance);
+//                             temp1[5] = (p1[1] * DISTANCE * 2.0 + roundR[14 * l + 2 * (k - 1) + 1] + rr[1] * distance);
+//                             temp1[6] = (p1[0] * DISTANCE * 2.0 + roundR[14 * l + 2 * (k - 1)]); //
+//                             temp1[7] = (p1[1] * DISTANCE * 2.0 + roundR[14 * l + 2 * (k - 1) + 1]);
+//
+//                             arrowI.extend(temp1.iter().copied());
+//                         }
+//                     }
+//                 } else {
+//                     j += 1;
+//                 }
+//             }
+//         }
+//
+//
+}
