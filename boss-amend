@@ -1,0 +1,292 @@
+use std::f64::consts::{FRAC_PI_2, PI};
+
+static HALF_ROAD_WIDTH: f64 = 0.7;
+static PARTITION_NUM: f64 = 6.0;
+
+pub(crate) struct Path {
+    point_with_len: Vec<f64>,
+    rd_fl: f64,
+    extra: [f64; 8],
+}
+
+impl Path {
+    pub(crate) fn new(points: Vec<f64>) -> Path {
+        let mut point_with_len = Vec::with_capacity((points.len() - 2) / 2 * 3);
+        let (mut x1, mut y1, mut i) = (points[2], points[3], 4);
+
+        while let [x2, y2, ..] = points[i..] {
+            i += 2;
+            let len = ((x1 - x2).powf(2.0) + (y1 - y2).powf(2.0)).sqrt();
+            if len <= HALF_ROAD_WIDTH { continue; }
+            point_with_len.extend_from_slice(&[x1, y1, len]);
+            x1 = x2;
+            y1 = y2;
+        }
+        point_with_len.extend_from_slice(&[x1, y1]);
+        Path {
+            point_with_len,
+            rd_fl: points[0],
+            extra: [0.0, 0.0, 0.0, 1.0, 0.3411765, 0.5058824, 1.0, points[1]],
+        }
+    }
+
+    pub(crate) fn build_bed(&self) {
+        self.broaden();
+    }
+
+    pub(crate) fn build_icon(&self, left: &Vec<f64>, right: &Vec<f64>, normal: &Vec<f64>, radian: &Vec<f64>) {}
+
+    fn broaden(&self) {
+        let l = (self.point_with_len.len() + 1) / 3 - 2;
+        let mut arcs_desc = Vec::with_capacity(l);
+        unsafe { arcs_desc.set_len(l); }
+        let mut road_points = vec![];
+        let mut lines_len = vec![];
+
+        for side in [false, true] {
+            let mut points = Vec::with_capacity((self.point_with_len.len() + 1) / 3 * 2);
+
+            // if let [x1, y1, l, x2, y2] = self.point_with_len[..5] {
+            //     let point = self.normalize([x1, y1], [x2, y2], l);
+            //     let point = self.rotate(point, side, std::f64::consts::FRAC_PI_2);
+            //     points.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x1, point[1] * HALF_ROAD_WIDTH + y1]);
+            // }
+            let mut i = 0;
+            lines_len.clear();
+            while let [_, _, l, ..] = self.point_with_len[i..] {
+                i += 3;
+                lines_len.push(l);
+            }
+
+            let mut i = 0;
+            while let [x1, y1, l, x2, y2, ll, x3, y3, ..] = self.point_with_len[i..] {
+                i += 3;
+                let first = self.normalize([x2, y2], [x1, y1], l);
+                let second = self.normalize([x2, y2], [x3, y3], ll);
+
+                let dot = (x1 - x2) / l * (x3 - x2) / ll + (y1 - y2) / l * (y3 - y2) / ll;
+                if dot <= -1.0 {
+                    continue;
+                }
+                let theta = dot.acos() * 0.5;
+                let sin = theta.sin();
+                let d = ((first[0] + second[0]).powf(2.0)) + ((first[1] + second[1]).powf(2.0)).sqrt();
+                let point = if self.clockwise([x1, y1], [x2, y2], [x3, y3]) == !side {
+                    [(-first[0] - second[0]) / d / sin, (-first[1] - second[1]) / d / sin]
+                } else {
+                    [(first[0] + second[0]) / d / sin, (first[1] + second[1]) / d / sin]
+                };
+
+                let cw = if self.clockwise([x1, y1], [x2, y2], [x3, y3]) { 1.0 } else { 0.0 }; // direction
+                points.extend_from_slice(
+                    &[point[0] * HALF_ROAD_WIDTH + x2, point[1] * HALF_ROAD_WIDTH + y2,
+                        l, -first[0], -first[1], cw, theta]);
+            }
+
+            // if let [x1, y1, l, x2, y2] = self.point_with_len[self.point_with_len.len() - 5..] {
+            //     let point = self.normalize([x1, y1], [x2, y2], l);
+            //     let point = self.rotate(point, side, std::f64::consts::FRAC_PI_2);
+            //     points.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x2, point[1] * HALF_ROAD_WIDTH + y2]);
+            // }
+
+            let mut res = self.smooth(points, side, &mut arcs_desc, &mut lines_len);
+            if let [x1, y1, l, x2, y2] = self.point_with_len[..5] {
+                let point = self.normalize([x1, y1], [x2, y2], l);
+                let point = self.rotate(point, side, FRAC_PI_2);
+                res.0.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x1, point[1] * HALF_ROAD_WIDTH + y1]);
+                res.0.rotate_right(2);
+            }
+            if let [x1, y1, l, x2, y2] = self.point_with_len[self.point_with_len.len() - 5..] {
+                let point = self.normalize([x1, y1], [x2, y2], l);
+                let point = self.rotate(point, side, FRAC_PI_2);
+                res.0.extend_from_slice(&[point[0] * HALF_ROAD_WIDTH + x2, point[1] * HALF_ROAD_WIDTH + y2]);
+            }
+            road_points.push(res);
+        }
+
+        let mut lines_normal = vec![];
+        let (mut i, l) = (0, road_points[0].0.len());
+        while let [x1, y1, x2, y2, ..] = road_points[0].0[i..] {
+            i = l.min(i + 14);
+            let l = ((x1 - x2).powf(2.0) + (y1 - y2).powf(2.0)).sqrt();
+            let point = self.normalize([x1, y1], [x2, y2], l);
+            lines_normal.extend_from_slice(&point);
+        }
+        println!("left_point{:?}", road_points[0].0);
+        println!("arcs_normal{:?}", road_points[0].1);
+        println!("right_point{:?}", road_points[1].0);
+        println!("arcs_desc:{:?}", arcs_desc);
+        println!("lines_len:{:?}", lines_len);
+        println!("lines_normal:{:?}", lines_normal);
+
+        let mut segments = vec![];
+        let mut states = vec![];
+        let (n, mut c) = (lines_len.len() - 1, 0.0);
+        for (i, l) in lines_len.into_iter().enumerate() {
+            c += l;
+            segments.push(c);
+            let j = i * 2;
+            states.push(State::Line(lines_normal[j], lines_normal[j + 1]));
+            if i != n {
+                c += arcs_desc[i].0 * PARTITION_NUM;
+                segments.push(c);
+                let nn = 2 * PARTITION_NUM as usize;
+                let jj = i * nn;
+                states.push(State::Arc(arcs_desc[i].0,
+                                       Vec::from(&road_points[0].1[jj..jj + nn]), arcs_desc[i].1 == 1.0));
+            }
+        }
+
+        let icon_size = 2.0 * HALF_ROAD_WIDTH;
+        let interval = 6.6 * icon_size + icon_size;
+        let mut start_left = [road_points[0].0[0], road_points[0].0[1]];
+        let mut start_right = [road_points[1].0[0], road_points[1].0[1]];
+
+        let mut acc = interval * 0.5;
+        let (nx, ny) = match &states[0] {
+            State::Line(nx, ny) => (*nx, *ny),
+            State::Arc(_, normals, _) => (normals[0], normals[1]),
+        };
+        start_left = [start_left[0] - acc * nx, start_left[1] - acc * ny];
+        start_right = [start_right[0] - acc * nx, start_right[1] - acc * ny];
+
+        for (segment, state) in segments.into_iter().zip(states) {
+            // println!("{:?}", segment);
+            // println!("{:?}", state);
+            while acc <= segment {
+                match &state {
+                    State::Line(nx, ny) => {
+                        println!("{:?}",
+                                 [start_left[0] + (interval - icon_size) * nx, start_left[1] + (interval - icon_size) * ny]);
+                        println!("{:?}", [start_left[0] + interval * nx, start_left[1] + interval * ny]);
+                        println!("{:?}",
+                                 [start_right[0] + (interval - icon_size) * nx, start_right[1] + (interval - icon_size) * ny]);
+                        println!("{:?}\n", [start_right[0] + interval * nx, start_right[1] + interval * ny]);
+
+                        start_left = [start_left[0] + interval * nx, start_left[1] + interval * ny];
+                        start_right = [start_right[0] + interval * nx, start_right[1] + interval * ny];
+                    }
+                    State::Arc(size, normals, cw) => {
+                        let (mut i, mut segment) = (0, segment - size * (PARTITION_NUM - 1.0));
+                        while segment < acc {
+                            segment += size;
+                            i += 1;
+                        }
+                        let [nx, ny] =
+                            self.rotate([normals[i * 2], normals[i * 2 + 1]], *cw, FRAC_PI_2);
+                        let (nx, ny) = (nx * 2.0 * HALF_ROAD_WIDTH, ny * 2.0 * HALF_ROAD_WIDTH);
+                        println!("a{:?}", (size, i));
+
+                        if *cw {
+                            let leftp2 = [start_left[0], start_left[1]];
+                            let leftp1 =
+                                [start_left[0] - normals[i * 2] * icon_size, start_left[1] - normals[i * 2 + 1] * icon_size];
+                            let rightp2 = [start_left[0] + nx, start_left[1] + ny];
+                            let rightp1 =
+                                [start_left[0] - normals[i * 2] * icon_size, start_left[1] - normals[i * 2 + 1] * icon_size];
+                            println!("a{:?}", leftp1);
+                            println!("a{:?}", leftp2);
+                            println!("a{:?}", rightp1);
+                            println!("a{:?}", rightp2);
+                            start_left = leftp2;
+                            start_right = rightp2;
+                        } else {
+                            let rightp2 = [start_right[0], start_right[1]];
+                            let rightp1 =
+                                [start_right[0] - normals[i * 2] * icon_size, start_right[1] - normals[i * 2 + 1] * icon_size];
+                            let leftp2 = [start_right[0] + nx, start_right[1] + ny];
+                            let leftp1 =
+                                [start_right[0] - normals[i * 2] * icon_size, start_right[1] - normals[i * 2 + 1] * icon_size];
+                            println!("a{:?}", leftp1);
+                            println!("a{:?}", leftp2);
+                            println!("a{:?}", rightp1);
+                            println!("a{:?}", rightp2);
+                            start_left = leftp2;
+                            start_right = rightp2;
+                        }
+                    }
+                }
+                acc += interval;
+            }
+        }
+        // self.build_icon(&road_points[0].0, &road_points[1].0, road_points[1].1, &lens);
+    }
+
+    fn clockwise(&self, a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
+        (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]) <= 0.0
+    }
+
+    fn rotate(&self, point: [f64; 2], side: bool, theta: f64) -> [f64; 2] {
+        let mut turn: Vec<Vec<f64>> = vec![vec![0.0; 2]; 2]; // direction matrix
+
+        if !side {
+            turn[0][0] = theta.cos();
+            turn[0][1] = -theta.sin();
+            turn[1][0] = theta.sin();
+            turn[1][1] = theta.cos();
+        } else {
+            turn[0][0] = theta.cos();
+            turn[0][1] = theta.sin();
+            turn[1][0] = -theta.sin();
+            turn[1][1] = theta.cos();
+        }
+
+
+        [turn[0][0] * point[0] + turn[0][1] * point[1], turn[1][0] * point[0] + turn[1][1] * point[1]]
+    }
+
+    fn smooth(&self, points: Vec<f64>, side: bool, arcs_desc: &mut Vec<(f64, f64)>, lines_len: &mut Vec<f64>) -> (Vec<f64>, Vec<f64>) {
+        let (mut res, mut i) = (vec![], 0);
+        let mut res2 = vec![];
+        while let [x1, y1, l, x2, y2, cw, theta, ..] = points[i..] {
+            i += 7;
+
+            let mut thetas = vec![(PI - theta * 2.0) / PARTITION_NUM].repeat(PARTITION_NUM as usize);
+            thetas[0] = thetas[0] * 0.5;
+
+            let (mut nx, mut ny) = (x2, y2);
+            let mut normals = Vec::with_capacity(12);
+            for &theta in thetas.iter() {
+                let normal = self.rotate([nx, ny], cw == 1.0, theta);
+                normals.extend_from_slice(&normal);
+                nx = normal[0];
+                ny = normal[1];
+            }
+
+            let d = if cw == 1.0 { 2.5 } else { 0.5 } * HALF_ROAD_WIDTH / theta.tan();
+            lines_len[i / 7 - 1] -= d;
+            lines_len[i / 7] -= d;
+
+            let (mut x, mut y) = (x1 - d * x2, y1 - d * y2);
+            res.extend_from_slice(&[x, y]);
+            let d = if cw == 1.0 { 2.5 } else { 0.5 } * HALF_ROAD_WIDTH * 2.0 * thetas[0].sin();
+            let mut j = 0;
+            while let [nx, ny, ..] = normals[j..] {
+                j += 2;
+                x += d * nx;
+                y += d * ny;
+                res.extend_from_slice(&[x, y]);
+            }
+            // res2.extend_from_slice(&[x2, y2]);
+            res2.extend_from_slice(&normals);
+
+            if !side == (cw == 1.0) {
+                arcs_desc[i / 7 - 1] = (d, cw);
+            }
+        }
+        (res, res2)
+    }
+
+    fn normalize(&self, a: [f64; 2], b: [f64; 2], l: f64) -> [f64; 2] {
+        let d = 1.0 / l;
+        [(b[0] - a[0]) * d, (b[1] - a[1]) * d]
+    }
+}
+
+#[derive(Debug)]
+enum State {
+    Line(f64, f64),
+    Arc(f64, Vec<f64>, bool),
+}
+
+
